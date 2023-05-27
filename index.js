@@ -6,6 +6,7 @@ import FormData from 'form-data';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import _ from 'lodash-es';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -30,60 +31,72 @@ const superbedGot = got.extend({
     }
 });
 
-const uploadConfig = await superbedGot('https://www.superbed.cn/?code=1').json();
+const resultMap = new Map();
 
-const formDataObject = {
-    nonce: 646703147,
-    ts: uploadConfig.ts,
-    token,
-    sign: crypto.createHash('md5').update(`${token}_${uploadConfig.ts}_646703147`).digest('hex'),
-    _xsrf: '',
-    endpoints: 'superbed',
-    categories: '',
-};
+for (const imagePathChunk of _.chunk(imagePaths, 5)) {
+    const uploadConfig = await superbedGot('https://www.superbed.cn/?code=1').json();
 
-for (const image of imagePaths) {
-    formDataObject[`file${imagePaths.indexOf(image)}`] = {
-        file: fs.createReadStream(image),
-        path: image,
+    const formDataObject = {
+        nonce: 646703147,
+        ts: uploadConfig.ts,
+        token,
+        sign: crypto.createHash('md5').update(`${token}_${uploadConfig.ts}_646703147`).digest('hex'),
+        _xsrf: '',
+        endpoints: 'superbed',
+        categories: '',
     };
-}
 
-const formData = new FormData();
-
-Object.entries(formDataObject).forEach(([key, value]) => {
-    if (typeof value !== 'object') {
-        formData.append(key, value);
-    } else {
-        formData.append(key, value.file, path.basename(value.path));
+    for (const image of imagePathChunk) {
+        formDataObject[`file${imagePathChunk.indexOf(image)}`] = {
+            file: fs.createReadStream(image),
+            path: image,
+        };
     }
-});
 
-const uploadResult = await superbedGot.post(
-    uploadConfig.url,
-    {
-        body: formData
-    }
-).json();
+    const formData = new FormData();
 
-if (uploadResult.err !== 0) {
-    throw new Error(uploadResult.msg);
-}
-
-const realImageResp = await superbedGot.get(
-    'https://www.superbed.cn/',
-    {
-        searchParams: {
-            ids: uploadResult.ids.join(',')
+    Object.entries(formDataObject).forEach(([key, value]) => {
+        if (typeof value !== 'object') {
+            formData.append(key, value);
+        } else {
+            formData.append(key, value.file, path.basename(value.path));
         }
-    }
-).json();
+    });
 
-if (realImageResp.err !== 0) {
-    throw new Error(realImageResp.msg);
+    const uploadResult = await superbedGot.post(
+        uploadConfig.url,
+        {
+            body: formData
+        }
+    ).json();
+
+    if (uploadResult.err !== 0) {
+        throw new Error(uploadResult.msg);
+    }
+
+    const realImageResp = await superbedGot.get(
+        'https://www.superbed.cn/',
+        {
+            searchParams: {
+                ids: uploadResult.ids.join(',')
+            }
+        }
+    ).json();
+
+    if (realImageResp.err !== 0) {
+        throw new Error(realImageResp.msg);
+    }
+
+    const idResultMap = realImageResp.results;
+
+    for (const id of uploadResult.ids) {
+        const index = uploadResult.ids.indexOf(id);
+        const idResult = idResultMap[id];
+        resultMap.set(imagePathChunk[index], idResult[2]);
+    }
 }
 
-const urls = Object.values(realImageResp.results).map((result) => result[2]);
+const urls = imagePaths.map(imagePath => resultMap.get(imagePath));
 
 const msg = `Upload Success:
 ${urls.join('\n')}`;
