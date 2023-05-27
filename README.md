@@ -21,7 +21,7 @@ pnpm link -g super-bed-cli
 ### 手动上传
 
 ```bash
-super-bed-cli <image_path1> <image_path2> ...
+super-bed <image_path1> <image_path2> ...
 ```
 
 ### 配合 Typora
